@@ -1,0 +1,56 @@
+{
+  "name": "datalogue",
+  "version": "0.1.0",
+  "description": "Lightweight TypeScript-native NL→SQL library. Add natural language database querying to any Node.js app in under 10 minutes.",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["sql", "natural-language", "nlp", "database", "typescript", "ai", "llm", "text-to-sql"],
+  "license": "ISC",
+  "dependencies": {
+    "node-sql-parser": "^5.3.9",
+    "rate-limiter-flexible": "^5.0.5"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "openai": "^4.97.0",
+    "pg": "^8.13.3",
+    "mysql2": "^3.12.0",
+    "better-sqlite3": "^11.9.1",
+    "mssql": "^11.0.1"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": { "optional": true },
+    "openai": { "optional": true },
+    "pg": { "optional": true },
+    "mysql2": { "optional": true },
+    "better-sqlite3": { "optional": true },
+    "mssql": { "optional": true }
+  },
+  "devDependencies": {
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.3",
+    "@types/pg": "^8.11.11",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/mssql": "^9.1.5",
+    "@anthropic-ai/sdk": "^0.52.0",
+    "openai": "^4.97.0",
+    "pg": "^8.13.3",
+    "mysql2": "^3.12.0",
+    "better-sqlite3": "^11.9.1",
+    "mssql": "^11.0.1"
+  }
+}

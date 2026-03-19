@@ -1,0 +1,22 @@
+{
+  "name": "datalogue-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CLI for Datalogue — npx datalogue serve",
+  "bin": {
+    "datalogue": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "clean": "rm -rf dist"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "commander": "^12.0.0",
+    "datalogue": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.3"
+  }
+}

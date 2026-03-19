@@ -1,0 +1,11 @@
+{
+  "name": "datalogue-integrations",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Thin framework helpers for Datalogue",
+  "scripts": {
+    "build": "echo 'no build step yet'",
+    "clean": "echo 'nothing to clean'"
+  },
+  "license": "ISC"
+}
