@@ -154,11 +154,20 @@ export interface DatalogueHooks {
   onBlock?: (reason: string, query: string, userId?: string) => Promise<void>;
 }
 
+// ─── Session store interface ─────────────────────────────────────────────────
+
+export interface SessionStore {
+  get(sessionId: string): Promise<Message[] | undefined>;
+  set(sessionId: string, messages: Message[], ttlMs?: number): Promise<void>;
+  delete(sessionId: string): Promise<void>;
+}
+
 // ─── Session config ──────────────────────────────────────────────────────────
 
 export interface SessionConfig {
   maxHistoryLength?: number;
   ttlMinutes?: number;
+  store?: SessionStore;
 }
 
 // ─── Rate limit config ───────────────────────────────────────────────────────

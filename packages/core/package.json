@@ -21,8 +21,7 @@
   "keywords": ["sql", "natural-language", "nlp", "database", "typescript", "ai", "llm", "text-to-sql"],
   "license": "ISC",
   "dependencies": {
-    "node-sql-parser": "^5.3.9",
-    "rate-limiter-flexible": "^5.0.5"
+    "node-sql-parser": "^5.3.9"
   },
   "peerDependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
@@ -30,7 +29,8 @@
     "pg": "^8.13.3",
     "mysql2": "^3.12.0",
     "better-sqlite3": "^11.9.1",
-    "mssql": "^11.0.1"
+    "mssql": "^11.0.1",
+    "rate-limiter-flexible": "^5.0.5"
   },
   "peerDependenciesMeta": {
     "@anthropic-ai/sdk": { "optional": true },
@@ -38,7 +38,8 @@
     "pg": { "optional": true },
     "mysql2": { "optional": true },
     "better-sqlite3": { "optional": true },
-    "mssql": { "optional": true }
+    "mssql": { "optional": true },
+    "rate-limiter-flexible": { "optional": true }
   },
   "devDependencies": {
     "tsup": "^8.4.0",

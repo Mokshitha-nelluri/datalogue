@@ -4,3 +4,9 @@ dist/
 *.tsbuildinfo
 coverage/
 .turbo/
+
+# Prevent stale tsc output in source dirs
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map

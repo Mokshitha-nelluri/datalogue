@@ -172,11 +172,19 @@ export function validateSQL(
   try {
     parseResult = parser.parse(cleanedSQL, { database: parserDialect });
   } catch {
-    // For MSSQL/SQLite where parser support is shaky, try fallback
-    if (opts.dialect === 'MSSQL' || opts.dialect === 'SQLite') {
+    // MariaDB: retry as MySQL dialect (covers 99% of cases), then fallback
+    if (opts.dialect === 'MariaDB') {
+      try {
+        parseResult = parser.parse(cleanedSQL, { database: 'MySQL' });
+      } catch {
+        return fallbackValidation(cleanedSQL, opts);
+      }
+    } else if (opts.dialect === 'MSSQL' || opts.dialect === 'SQLite') {
+      // For MSSQL/SQLite where parser support is shaky, try fallback
       return fallbackValidation(cleanedSQL, opts);
+    } else {
+      return { valid: false, reason: 'SQL_PARSE_FAILED' };
     }
-    return { valid: false, reason: 'SQL_PARSE_FAILED' };
   }
 
   const ast = parseResult.ast;

@@ -1,4 +1,4 @@
-import type { Message } from '../types.js';
+import type { Message, SessionStore } from '../types.js';
 
 interface Session {
   messages: Message[];
@@ -8,21 +8,32 @@ interface Session {
 /**
  * Multi-turn conversation context manager.
  * Bounded by maxHistoryLength (oldest-first eviction) and TTL (expired sessions pruned).
+ * Supports pluggable external store (Redis, DB, etc.) via SessionStore interface.
+ * Falls back to in-memory Map when no store is provided.
  */
 export class ContextManager {
   private readonly sessions = new Map<string, Session>();
+  private readonly externalStore: SessionStore | undefined;
 
   constructor(
     private readonly maxHistoryLength: number = 50,
     private readonly ttlMinutes: number = 60,
-  ) {}
+    externalStore?: SessionStore,
+  ) {
+    this.externalStore = externalStore;
+  }
 
   /**
    * Get conversation history for a session.
    * Returns empty array for unknown or expired sessions.
    * Refreshes lastAccess on access.
    */
-  getHistory(sessionId: string): Message[] {
+  async getHistory(sessionId: string): Promise<Message[]> {
+    if (this.externalStore) {
+      const messages = await this.externalStore.get(sessionId);
+      return messages?.slice(-this.maxHistoryLength) ?? [];
+    }
+
     const session = this.sessions.get(sessionId);
     if (!session) return [];
 
@@ -42,7 +53,18 @@ export class ContextManager {
    * Creates the session if it doesn't exist.
    * Evicts oldest messages when maxHistoryLength is exceeded.
    */
-  addMessage(sessionId: string, message: Message): void {
+  async addMessage(sessionId: string, message: Message): Promise<void> {
+    if (this.externalStore) {
+      const existing = (await this.externalStore.get(sessionId)) ?? [];
+      existing.push(message);
+      while (existing.length > this.maxHistoryLength) {
+        existing.shift();
+      }
+      const ttlMs = this.ttlMinutes * 60_000;
+      await this.externalStore.set(sessionId, existing, ttlMs);
+      return;
+    }
+
     let session = this.sessions.get(sessionId);
 
     if (!session) {
@@ -75,7 +97,11 @@ export class ContextManager {
   /**
    * Clear a specific session's history.
    */
-  clearSession(sessionId: string): void {
+  async clearSession(sessionId: string): Promise<void> {
+    if (this.externalStore) {
+      await this.externalStore.delete(sessionId);
+      return;
+    }
     this.sessions.delete(sessionId);
   }
 }

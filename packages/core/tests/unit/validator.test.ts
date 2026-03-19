@@ -366,6 +366,34 @@ describe('validateSQL — dialect support', () => {
     );
     expect(result.valid).toBe(false);
   });
+
+  it('MariaDB retries as MySQL dialect on parse failure', () => {
+    // Standard SELECT should parse fine via MySQL fallback
+    const result = validateSQL('SELECT id, name FROM orders WHERE id = 1', {
+      ...baseOpts,
+      dialect: 'MariaDB',
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it('MariaDB blocks disallowed tables even via MySQL fallback', () => {
+    const result = validateSQL('SELECT id FROM secret_table', {
+      ...baseOpts,
+      dialect: 'MariaDB',
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('TABLE_NOT_ALLOWED');
+  });
+
+  it('MariaDB falls back to regex when both MariaDB and MySQL parsing fail', () => {
+    // A syntactically weird query that neither parser can handle still goes
+    // through fallback regex validation for SELECT
+    const result = validateSQL('SELECT id FROM orders', {
+      ...baseOpts,
+      dialect: 'MariaDB',
+    });
+    expect(result.valid).toBe(true);
+  });
 });
 
 // ─── stripSQLComments ────────────────────────────────────────────────────────

@@ -201,6 +201,21 @@ const result = await qm.query(userMessage);
 - **GitHub research confirms the gap:** of 333 text-to-SQL repos on GitHub, 212 are Python, 47 are Jupyter notebooks, and only 22 are TypeScript with 5 JavaScript. None of those 22 TypeScript repos are a drop-in embeddable library — they're all full apps, research tools, or GUI clients.
 - **Zero TypeScript-native, embeddable, secure, drop-in NL→SQL libraries exist on npm.** This is the gap.
 
+### Competitive positioning — what Datalogue does that nobody else does
+
+| Feature | Vanna.ai | LangChain SQL | Dataherald | Wren AI | **Datalogue** |
+|---|---|---|---|---|---|
+| **SQL validation** | `sqlparse` keyword check (CVE'd) | None ("limit DB permissions") | `sqlparse` blocklist | Semantic layer | **AST-level structural validation** |
+| **TypeScript-native** | Python | Python + JS wrapper | Python | TypeScript (platform) | **TypeScript library** |
+| **Built-in rate limiting** | Hook only | None | Enterprise billing | N/A | **Optional peer dep** |
+| **Session persistence** | In-memory + interface | Deprecated → LangGraph | MongoDB prompt IDs | Platform state | **In-memory + SessionStore interface** |
+| **Row-level security** | Hook-based | None | Org-scoped | Semantic layer | **Hook-based + rowFilter config** |
+| **Bundle weight** | N/A (Python) | 9.6 kB (re-exports only) | N/A (Python) | N/A (platform) | **~434 kB gzipped** (AST parser is the cost of security) |
+
+**Datalogue's two genuine differentiators:**
+1. AST-level SQL validation — no competitor does this; it's the reason Vanna got a CVE and Datalogue won't
+2. TypeScript-native embeddable library — first of its kind in a space dominated by Python frameworks
+
 ### Interview narrative
 *"I studied the CVEs in Vanna.ai, researched the GitHub ecosystem (333 repos, only 22 TypeScript, none embeddable), and built the secure drop-in TypeScript-native version that didn't exist. The gap isn't the NL→SQL concept — it's that nobody had built it as a proper npm library with production-grade security."*
 
@@ -453,7 +468,7 @@ export interface DatalogueConfig {
   auditLog?: boolean;                // Default: true. Logs to console as JSON.
   auditLogFn?: (entry: AuditEntry) => void; // Custom log destination.
 
-  // Rate limiting:
+  // Rate limiting (requires `rate-limiter-flexible` peer dep — only loaded when configured):
   rateLimit?: {
     requestsPerMinute: number;       // Per userId if provided. Default: 60.
   };
@@ -462,6 +477,8 @@ export interface DatalogueConfig {
   session?: {
     maxHistoryLength?: number;       // Max messages per session. Default: 50. Oldest evicted first.
     ttlMinutes?: number;             // Session TTL. Default: 60. Expired sessions are purged.
+    store?: SessionStore;            // Pluggable external store for persistent sessions.
+                                     // Default: in-memory Map. Bring your own Redis/DB adapter.
   };
 
   // Hooks — for building on top of Datalogue (internal tools, custom middleware)
@@ -537,6 +554,16 @@ export interface RowFilterConfig {
   column: string;                    // e.g. 'user_id', 'tenant_id'
   // Applied at the adapter level: appends WHERE <column> = $userId
   // to every SELECT before execution. Cannot be bypassed by prompt injection.
+}
+
+// ─── Session store interface ─────────────────────────────────────────────────
+
+export interface SessionStore {
+  get(sessionId: string): Promise<Message[] | undefined>;
+  set(sessionId: string, messages: Message[], ttlMs?: number): Promise<void>;
+  delete(sessionId: string): Promise<void>;
+  // Example: wrap `keyv`, `ioredis`, or any KV store.
+  // In-memory Map is the default when no store is provided.
 }
 
 // ─── Core types ──────────────────────────────────────────────────────────────
@@ -817,7 +844,6 @@ const qm = new Datalogue({
 {
   "dependencies": {
     "node-sql-parser": "^5.3.9",
-    "rate-limiter-flexible": "^5.0.5",
     "commander": "^12.0.0"
   },
   "peerDependencies": {
@@ -826,7 +852,8 @@ const qm = new Datalogue({
     "pg": "^8.13.3",
     "mysql2": "^3.12.0",
     "better-sqlite3": "^11.9.1",
-    "mssql": "^11.0.1"
+    "mssql": "^11.0.1",
+    "rate-limiter-flexible": "^5.0.5"
   },
   "peerDependenciesMeta": {
     "@anthropic-ai/sdk": { "optional": true },
@@ -834,7 +861,8 @@ const qm = new Datalogue({
     "pg": { "optional": true },
     "mysql2": { "optional": true },
     "better-sqlite3": { "optional": true },
-    "mssql": { "optional": true }
+    "mssql": { "optional": true },
+    "rate-limiter-flexible": { "optional": true }
   },
   "devDependencies": {
     "typescript": "^5.8.3",
@@ -917,11 +945,21 @@ export function validateSQL(
   try {
     ast = parser.astify(cleanedSQL, { database: opts.dialect });
   } catch {
+    // MariaDB: retry as MySQL dialect (covers 99% of cases), then fallback
+    if (opts.dialect === 'MariaDB') {
+      try {
+        ast = parser.astify(cleanedSQL, { database: 'MySQL' });
+      } catch {
+        return fallbackValidation(cleanedSQL, opts);
+      }
+    }
     // For MSSQL/SQLite where parser support is shaky, try fallback validation
-    if (opts.dialect === 'MSSQL' || opts.dialect === 'SQLite') {
+    else if (opts.dialect === 'MSSQL' || opts.dialect === 'SQLite') {
       return fallbackValidation(cleanedSQL, opts);
     }
-    return { valid: false, reason: 'SQL_PARSE_FAILED' };
+    else {
+      return { valid: false, reason: 'SQL_PARSE_FAILED' };
+    }
   }
 
   const statements = Array.isArray(ast) ? ast : [ast];
@@ -1385,15 +1423,19 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 Document these in the README so users aren't surprised:
 
-1. **Rate limiter is in-memory only.** Uses `rate-limiter-flexible` with in-memory storage. Works for single-process deployments. Does NOT work correctly across multiple instances (PM2 cluster mode, Kubernetes replicas). For multi-instance setups, users should implement their own rate limiting via the `beforeQuery` hook with a shared store (Redis, etc.). v2 may add a `rateLimitStore` config option.
+1. **Rate limiting is opt-in (not bundled).** `rate-limiter-flexible` is a peer dependency, only loaded when `rateLimit` config is set. Most developers already have rate limiting in their API layer (Express middleware, Cloudflare, nginx). If you need per-user query rate limiting inside Datalogue, install `rate-limiter-flexible` and configure `rateLimit: { requestsPerMinute: 60 }`. For multi-instance deployments (PM2 cluster, Kubernetes), use your existing infrastructure-level rate limiter or the `beforeQuery` hook with a shared store.
 
-2. **`node-sql-parser` has limited MSSQL/SQLite support.** The AST parser works well for PostgreSQL and MySQL but has known gaps for MSSQL and SQLite syntax. The validator falls back to conservative regex-based validation when AST parsing fails for these dialects. This means some valid but unusual MSSQL/SQLite queries may be incorrectly blocked. Report these as GitHub issues so we can add specific handling.
+2. **`node-sql-parser` has limited MSSQL/SQLite support.** The AST parser works well for PostgreSQL and MySQL but has known gaps for MSSQL and SQLite syntax. The validator falls back to conservative regex-based validation when AST parsing fails for these dialects. This means some valid but unusual MSSQL/SQLite queries may be incorrectly blocked. Report these as GitHub issues so we can add specific handling. **v2 plan:** Layer `dt-sql-parser` (ANTLR4-based, strong T-SQL support) as a second-tier parser for MSSQL, and `sql-parser-cst` for SQLite.
 
-3. **No row-level security without explicit `rowFilter` config.** If multiple users share the same tables, the developer MUST configure `rowFilter` to prevent cross-user data access. Without it, any user can query any row in the allowed tables. This is by design (not all apps are multi-tenant), but must be called out clearly.
+3. **No row-level security without explicit `rowFilter` config.** If multiple users share the same tables, the developer MUST configure `rowFilter: { column: 'user_id' }` to prevent cross-user data access. Without it, any user can query any row in the allowed tables. This is by design — not all apps are multi-tenant. No competitor provides automatic RLS either; Vanna.ai has a similar hook-based approach.
 
-4. **MariaDB uses a separate parser dialect.** While MariaDB uses the `mysql2` driver (same wire protocol), `node-sql-parser` treats MariaDB as a distinct dialect. Some MariaDB-specific syntax may not validate correctly under the MySQL parser. Use `type: 'mysql'` in the DB config — the adapter detects MariaDB at introspection time and adjusts the parser dialect.
+4. **MariaDB validator retries as MySQL dialect.** While MariaDB uses the `mysql2` driver (same wire protocol), `node-sql-parser` treats MariaDB as a distinct dialect with a thinner grammar. When MariaDB-specific syntax fails to parse, the validator automatically retries with the MySQL dialect (covers 99% of cases), then falls back to conservative regex validation. This matches industry practice — only LangChain distinguishes MariaDB from MySQL, and only at the prompt level.
 
-5. **Session history is in-memory.** Conversation history for multi-turn queries is stored in a bounded in-memory Map. Restarting the process clears all sessions. For persistent sessions, users should implement external storage via the hooks API.
+5. **Session history is in-memory by default.** Conversation history for multi-turn queries is stored in a bounded in-memory Map. Restarting the process clears all sessions. For persistent sessions, provide a `SessionStore` implementation via `session.store` config — wrap any KV store (Redis via `ioredis`, `keyv` with 30+ adapters, or your own). The `SessionStore` interface has 3 methods: `get`, `set`, `delete`. This matches Vanna.ai's architecture (`MemoryConversationStore` default + pluggable `ConversationStore` interface).
+
+### Bundle size note
+
+`node-sql-parser` is the heaviest dependency (~2.4 MB minified / ~419 kB gzipped) because it bundles grammar files for every SQL dialect. This is the cost of AST-level SQL validation — the feature that no competitor provides and that directly prevents the class of vulnerability that gave Vanna.ai a CVE 8.7/10. All other dependencies are lightweight. DB drivers and AI SDKs are peer dependencies — users only install what they use.
 
 ---
 
@@ -1421,7 +1463,7 @@ User natural language query
         ▼
 ┌─────────────────────┐
 │   Context manager   │  Prepends sessionId conversation history
-│   (manager.ts)      │  Map<sessionId, Message[]> — one list per user session
+│   (manager.ts)      │  In-memory Map (default) or pluggable SessionStore (Redis, etc.)
 │                     │  Bounded: maxHistoryLength (default 50), TTL (default 60min)
 │                     │  Oldest messages evicted first when limit reached
 └─────────────────────┘

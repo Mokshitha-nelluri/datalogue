@@ -67,6 +67,7 @@ export class Datalogue {
       ? new ContextManager(
           config.session.maxHistoryLength,
           config.session.ttlMinutes,
+          config.session.store,
         )
       : null;
   }
@@ -162,7 +163,7 @@ export class Datalogue {
     const sessionId = options?.sessionId;
     const history =
       sessionId && this.contextManager
-        ? this.contextManager.getHistory(sessionId)
+        ? await this.contextManager.getHistory(sessionId)
         : [];
 
     // Get AI-generated SQL
@@ -357,11 +358,11 @@ export class Datalogue {
 
     // Store conversation context for multi-turn sessions
     if (sessionId && this.contextManager) {
-      this.contextManager.addMessage(sessionId, {
+      await this.contextManager.addMessage(sessionId, {
         role: 'user',
         content: naturalLanguageQuery,
       });
-      this.contextManager.addMessage(sessionId, {
+      await this.contextManager.addMessage(sessionId, {
         role: 'assistant',
         content: result.sql,
       });

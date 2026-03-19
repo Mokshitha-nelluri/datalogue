@@ -53,6 +53,7 @@ export type {
   RowFilterConfig,
   TableDescription,
   SessionConfig,
+  SessionStore,
   RateLimitConfig,
 
   // Validator types
