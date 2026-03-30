@@ -6,9 +6,29 @@ dist/
 *.tsbuildinfo
 coverage/
 .turbo/
+.next/
 
-# Prevent stale tsc output in source dirs
+# Database files
+*.db
+
+# Prevent stale tsc/tsup output in source dirs
 packages/*/src/**/*.js
 packages/*/src/**/*.js.map
 packages/*/src/**/*.d.ts
 packages/*/src/**/*.d.ts.map
+
+# Compiled test artifacts
+packages/*/tests/**/*.js
+packages/*/tests/**/*.js.map
+packages/*/tests/**/*.d.ts
+packages/*/tests/**/*.d.ts.map
+
+# Compiled config artifacts
+cli/**/*.d.ts
+cli/**/*.d.ts.map
+cli/**/*.js.map
+packages/*/tsup.config.d.ts
+packages/*/tsup.config.d.ts.map
+packages/*/tsup.config.js.map
+vitest.config.d.ts
+vitest.config.js
