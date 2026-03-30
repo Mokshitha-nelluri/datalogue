@@ -1,0 +1,9 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/api/mock/route": "/api/mock",
+  "/api/query/route": "/api/query",
+  "/dashboard/page": "/dashboard",
+  "/page": "/",
+  "/reports/page": "/reports",
+  "/mock/page": "/mock"
+}

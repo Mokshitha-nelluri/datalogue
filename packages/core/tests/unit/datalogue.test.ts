@@ -290,4 +290,191 @@ describe('Datalogue', () => {
       expect(adapter.close).toHaveBeenCalledOnce();
     });
   });
+
+  describe('rowFilter', () => {
+    const AI_RESPONSE =
+      'EXPLANATION: All orders\nCONFIDENCE: high\nSQL: SELECT id, total FROM orders';
+
+    it('injects WHERE clause with userId when rowFilter is configured', async () => {
+      const adapter = createMockAdapter();
+      (adapter.query as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 1, total: 100 }]);
+      const qm = new Datalogue({
+        db: adapter,
+        ai: createMockAI(AI_RESPONSE),
+        allowedTables: ['orders'],
+        rowFilter: { column: 'user_id' },
+      });
+
+      await qm.query('show me all orders', { userId: 'user_123' });
+      const executedSQL = (adapter.query as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(executedSQL).toContain("WHERE user_id = 'user_123'");
+    });
+
+    it('prepends filter with AND when SQL already has WHERE', async () => {
+      const aiWithWhere = createMockAI(
+        'EXPLANATION: Big orders\nCONFIDENCE: high\nSQL: SELECT id FROM orders WHERE total > 100',
+      );
+      const adapter = createMockAdapter();
+      (adapter.query as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      const qm = new Datalogue({
+        db: adapter,
+        ai: aiWithWhere,
+        allowedTables: ['orders'],
+        rowFilter: { column: 'tenant_id' },
+      });
+
+      await qm.query('big orders', { userId: 'acme' });
+      const executedSQL = (adapter.query as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(executedSQL).toContain("tenant_id = 'acme' AND total > 100");
+    });
+
+    it('inserts WHERE before ORDER BY', async () => {
+      const aiWithOrder = createMockAI(
+        'EXPLANATION: Sorted\nCONFIDENCE: high\nSQL: SELECT id, total FROM orders ORDER BY total DESC',
+      );
+      const adapter = createMockAdapter();
+      (adapter.query as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      const qm = new Datalogue({
+        db: adapter,
+        ai: aiWithOrder,
+        allowedTables: ['orders'],
+        rowFilter: { column: 'user_id' },
+      });
+
+      await qm.query('sorted orders', { userId: 'u1' });
+      const executedSQL = (adapter.query as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(executedSQL).toMatch(/WHERE user_id = 'u1' ORDER BY/);
+    });
+
+    it('throws INVALID_CONFIG when rowFilter is set but no userId provided', async () => {
+      const qm = new Datalogue({
+        db: createMockAdapter(),
+        ai: createMockAI(AI_RESPONSE),
+        allowedTables: ['orders'],
+        rowFilter: { column: 'user_id' },
+      });
+
+      await expect(qm.query('show orders')).rejects.toThrow(DatalogueError);
+      try {
+        await qm.query('show orders');
+      } catch (err) {
+        expect((err as DatalogueError).code).toBe('INVALID_CONFIG');
+      }
+    });
+
+    it('rejects userId with special characters to prevent injection', async () => {
+      const qm = new Datalogue({
+        db: createMockAdapter(),
+        ai: createMockAI(AI_RESPONSE),
+        allowedTables: ['orders'],
+        rowFilter: { column: 'user_id' },
+      });
+
+      await expect(
+        qm.query('orders', { userId: "admin'; DROP TABLE orders;--" }),
+      ).rejects.toThrow('invalid characters');
+    });
+
+    it('includes filter in dry-run SQL output', async () => {
+      const adapter = createMockAdapter();
+      const qm = new Datalogue({
+        db: adapter,
+        ai: createMockAI(AI_RESPONSE),
+        allowedTables: ['orders'],
+        rowFilter: { column: 'org_id' },
+      });
+
+      const result = await qm.query('orders', { userId: 'org_42', dryRun: true });
+      expect(result.sql).toContain("WHERE org_id = 'org_42'");
+      expect(result.dryRun).toBe(true);
+    });
+
+    it('does not modify SQL when rowFilter is not configured', async () => {
+      const adapter = createMockAdapter();
+      (adapter.query as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      const qm = new Datalogue({
+        db: adapter,
+        ai: createMockAI(AI_RESPONSE),
+        allowedTables: ['orders'],
+      });
+
+      await qm.query('orders', { userId: 'user_1' });
+      const executedSQL = (adapter.query as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(executedSQL).not.toContain('WHERE');
+    });
+  });
+
+  describe('rateLimit', () => {
+    it('throws RATE_LIMIT_EXCEEDED after exceeding requestsPerMinute', async () => {
+      const AI_RESPONSE =
+        'EXPLANATION: All orders\nCONFIDENCE: high\nSQL: SELECT id FROM orders';
+      const adapter = createMockAdapter();
+      (adapter.query as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      const qm = new Datalogue({
+        db: adapter,
+        ai: createMockAI(AI_RESPONSE),
+        allowedTables: ['orders'],
+        rateLimit: { requestsPerMinute: 2 },
+      });
+
+      // First two should succeed
+      await qm.query('q1', { userId: 'u1' });
+      await qm.query('q2', { userId: 'u1' });
+
+      // Third should fail
+      await expect(qm.query('q3', { userId: 'u1' })).rejects.toThrow(
+        DatalogueError,
+      );
+      try {
+        await qm.query('q4', { userId: 'u1' });
+      } catch (err) {
+        expect((err as DatalogueError).code).toBe('RATE_LIMIT_EXCEEDED');
+      }
+    });
+
+    it('rate limits are per-user', async () => {
+      const AI_RESPONSE =
+        'EXPLANATION: x\nCONFIDENCE: high\nSQL: SELECT id FROM orders';
+      const adapter = createMockAdapter();
+      (adapter.query as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      const qm = new Datalogue({
+        db: adapter,
+        ai: createMockAI(AI_RESPONSE),
+        allowedTables: ['orders'],
+        rateLimit: { requestsPerMinute: 1 },
+      });
+
+      // user A uses their 1 request
+      await qm.query('q1', { userId: 'userA' });
+
+      // user B should still be allowed
+      await qm.query('q1', { userId: 'userB' });
+
+      // user A should be blocked
+      await expect(qm.query('q2', { userId: 'userA' })).rejects.toThrow(
+        'Rate limit exceeded',
+      );
+    });
+
+    it('does not rate limit when rateLimit is not configured', async () => {
+      const AI_RESPONSE =
+        'EXPLANATION: x\nCONFIDENCE: high\nSQL: SELECT id FROM orders';
+      const adapter = createMockAdapter();
+      (adapter.query as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      const qm = new Datalogue({
+        db: adapter,
+        ai: createMockAI(AI_RESPONSE),
+        allowedTables: ['orders'],
+      });
+
+      // Should all succeed — no limit
+      for (let i = 0; i < 10; i++) {
+        await qm.query(`q${i}`);
+      }
+      expect(adapter.query).toHaveBeenCalledTimes(10);
+    });
+  });
 });

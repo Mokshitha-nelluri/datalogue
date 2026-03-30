@@ -12,46 +12,85 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build && pnpm run typecheck"
   },
-  "keywords": ["sql", "natural-language", "nlp", "database", "typescript", "ai", "llm", "text-to-sql"],
+  "keywords": [
+    "sql",
+    "natural-language",
+    "nlp",
+    "database",
+    "typescript",
+    "ai",
+    "llm",
+    "text-to-sql",
+    "nl2sql",
+    "query"
+  ],
+  "author": "Mokshitha Nelluri <mokshi.nelluri@gmail.com>",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mokshitha-nelluri/datalogue.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/Mokshitha-nelluri/datalogue#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "node-sql-parser": "^5.3.9"
   },
   "peerDependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
-    "openai": "^4.97.0",
-    "pg": "^8.13.3",
-    "mysql2": "^3.12.0",
     "better-sqlite3": "^11.9.1",
     "mssql": "^11.0.1",
+    "mysql2": "^3.12.0",
+    "openai": "^4.97.0",
+    "pg": "^8.13.3",
     "rate-limiter-flexible": "^5.0.5"
   },
   "peerDependenciesMeta": {
-    "@anthropic-ai/sdk": { "optional": true },
-    "openai": { "optional": true },
-    "pg": { "optional": true },
-    "mysql2": { "optional": true },
-    "better-sqlite3": { "optional": true },
-    "mssql": { "optional": true },
-    "rate-limiter-flexible": { "optional": true }
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "openai": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
+    },
+    "better-sqlite3": {
+      "optional": true
+    },
+    "mssql": {
+      "optional": true
+    },
+    "rate-limiter-flexible": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "tsup": "^8.4.0",
-    "typescript": "^5.8.3",
-    "@types/pg": "^8.11.11",
+    "@anthropic-ai/sdk": "^0.52.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/mssql": "^9.1.5",
-    "@anthropic-ai/sdk": "^0.52.0",
+    "@types/pg": "^8.11.11",
+    "better-sqlite3": "^11.9.1",
+    "mssql": "^11.0.1",
+    "mysql2": "^3.12.0",
     "openai": "^4.97.0",
     "pg": "^8.13.3",
-    "mysql2": "^3.12.0",
-    "better-sqlite3": "^11.9.1",
-    "mssql": "^11.0.1"
+    "rate-limiter-flexible": "^10.0.1",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.3"
   }
 }

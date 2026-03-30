@@ -54,6 +54,9 @@ export class Datalogue {
   private readonly auditLog: (entry: AuditEntry) => void;
   private readonly contextManager: ContextManager | null;
   private cachedSchema: SchemaInfo | null = null;
+  // Rate limiter instance — lazily initialized on first use
+  private rateLimiter: { consume(key: string): Promise<unknown> } | null = null;
+  private rateLimiterReady: Promise<void> | null = null;
 
   constructor(config: DatalogueConfig) {
     this.config = config;
@@ -70,6 +73,32 @@ export class Datalogue {
           config.session.store,
         )
       : null;
+
+    // Lazily initialize rate limiter if configured
+    if (config.rateLimit) {
+      const rpm = config.rateLimit.requestsPerMinute;
+      this.rateLimiterReady = (async () => {
+        try {
+          const mod = await import('rate-limiter-flexible');
+          const RateLimiterMemory =
+            mod.RateLimiterMemory ??
+            (mod as unknown as { default: { RateLimiterMemory: unknown } })
+              .default?.RateLimiterMemory;
+          this.rateLimiter = new (
+            RateLimiterMemory as new (opts: {
+              points: number;
+              duration: number;
+            }) => { consume(key: string): Promise<unknown> }
+          )({ points: rpm, duration: 60 });
+        } catch {
+          throw new DatalogueError(
+            'rateLimit is configured but "rate-limiter-flexible" is not installed. ' +
+              'Install it: npm install rate-limiter-flexible',
+            'INVALID_CONFIG',
+          );
+        }
+      })();
+    }
   }
 
   private resolveAdapter(db: DatalogueConfig['db']): DBAdapter {
@@ -156,6 +185,20 @@ export class Datalogue {
       await this.config.hooks.beforeQuery(naturalLanguageQuery, userId);
     }
 
+    // Rate limit check (per userId, or 'anonymous' if no userId)
+    if (this.rateLimiterReady) {
+      await this.rateLimiterReady;
+      const key = userId ?? 'anonymous';
+      try {
+        await this.rateLimiter!.consume(key);
+      } catch {
+        throw new DatalogueError(
+          `Rate limit exceeded for ${key}. Max ${this.config.rateLimit!.requestsPerMinute} requests per minute.`,
+          'RATE_LIMIT_EXCEEDED',
+        );
+      }
+    }
+
     // Build system prompt with schema
     const systemPrompt = await this.buildSystemPrompt();
 
@@ -216,10 +259,13 @@ export class Datalogue {
 
     const sqlToExecute = validation.normalizedSQL ?? parsed.sql;
 
+    // Apply rowFilter — inject WHERE clause for tenant isolation
+    const sqlWithFilter = this.applyRowFilter(sqlToExecute, userId);
+
     // Dry-run mode: return the SQL without executing
     if (options?.dryRun) {
       const dryResult: QueryResult = {
-        sql: sqlToExecute,
+        sql: sqlWithFilter,
         rows: [],
         summary: parsed.summary,
         confidence: parsed.confidence,
@@ -232,7 +278,7 @@ export class Datalogue {
         timestamp: new Date().toISOString(),
         userId,
         naturalLanguageQuery,
-        generatedSQL: sqlToExecute,
+        generatedSQL: sqlWithFilter,
         rowCount: 0,
         executionTimeMs: dryResult.executionTimeMs,
         blocked: false,
@@ -246,7 +292,7 @@ export class Datalogue {
     let retryUsed = false;
     let retryConfidence: typeof parsed.confidence | undefined;
     try {
-      rows = (await this.adapter.query(sqlToExecute)) as Record<
+      rows = (await this.adapter.query(sqlWithFilter)) as Record<
         string,
         unknown
       >[];
@@ -255,7 +301,7 @@ export class Datalogue {
       const sanitized = sanitizeDBError(
         firstErr instanceof Error ? firstErr.message : String(firstErr),
       );
-      const retryMessage = `The following SQL failed with error: ${sanitized}\nOriginal question: ${naturalLanguageQuery}\nFailed SQL: ${sqlToExecute}\nFix the SQL so it only uses columns that exist in the schema.`;
+      const retryMessage = `The following SQL failed with error: ${sanitized}\nOriginal question: ${naturalLanguageQuery}\nFailed SQL: ${sqlWithFilter}\nFix the SQL so it only uses columns that exist in the schema.`;
 
       const retryResponse = await this.ai.complete(
         systemPrompt,
@@ -289,7 +335,8 @@ export class Datalogue {
         );
       }
 
-      const retrySql = retryValidation.normalizedSQL ?? retryParsed.sql;
+      const retrySqlBase = retryValidation.normalizedSQL ?? retryParsed.sql;
+      const retrySql = this.applyRowFilter(retrySqlBase, userId);
 
       try {
         rows = (await this.adapter.query(retrySql)) as Record<
@@ -333,7 +380,7 @@ export class Datalogue {
 
     let result: QueryResult = formatQueryResult(
       limitedRows,
-      sqlToExecute,
+      sqlWithFilter,
       parsed.summary ?? '',
       finalConfidence,
       Date.now() - startTime,
@@ -350,7 +397,7 @@ export class Datalogue {
       timestamp: new Date().toISOString(),
       userId,
       naturalLanguageQuery,
-      generatedSQL: sqlToExecute,
+      generatedSQL: sqlWithFilter,
       rowCount: result.rowCount,
       executionTimeMs: result.executionTimeMs,
       blocked: false,
@@ -400,6 +447,58 @@ export class Datalogue {
   async refreshSchema(): Promise<void> {
     this.cachedSchema = null;
     await this.getSchema();
+  }
+
+  /**
+   * Inject a WHERE clause for row-level tenant isolation.
+   * Applied at the adapter level (not by the LLM) so it cannot be
+   * bypassed by prompt injection.
+   */
+  private applyRowFilter(sql: string, userId?: string): string {
+    if (!this.config.rowFilter) return sql;
+
+    const col = this.config.rowFilter.column;
+
+    if (!userId) {
+      throw new DatalogueError(
+        `rowFilter is configured on column "${col}" but no userId was provided in query options`,
+        'INVALID_CONFIG',
+      );
+    }
+
+    // Sanitize userId — only allow alphanumeric, hyphens, underscores, dots, @
+    if (!/^[\w.@-]+$/.test(userId)) {
+      throw new DatalogueError(
+        'userId contains invalid characters for rowFilter injection',
+        'INVALID_CONFIG',
+      );
+    }
+
+    // Escape single quotes in userId to prevent SQL injection
+    const safeUserId = userId.replace(/'/g, "''");
+
+    // Insert WHERE clause — handles SELECT with and without existing WHERE
+    const upperSql = sql.toUpperCase();
+    const whereIdx = upperSql.indexOf(' WHERE ');
+    const filterClause = `${col} = '${safeUserId}'`;
+
+    if (whereIdx !== -1) {
+      // Existing WHERE — prepend our filter with AND
+      const insertPos = whereIdx + 7; // length of ' WHERE '
+      return sql.slice(0, insertPos) + filterClause + ' AND ' + sql.slice(insertPos);
+    }
+
+    // No WHERE — insert before ORDER BY, GROUP BY, LIMIT, HAVING, UNION, or end
+    const insertionPatterns = [/\sORDER\s+BY\s/i, /\sGROUP\s+BY\s/i, /\sLIMIT\s/i, /\sHAVING\s/i, /\sUNION\s/i];
+    for (const pattern of insertionPatterns) {
+      const match = pattern.exec(sql);
+      if (match) {
+        return sql.slice(0, match.index) + ` WHERE ${filterClause}` + sql.slice(match.index);
+      }
+    }
+
+    // No trailing clauses — append at end
+    return sql + ` WHERE ${filterClause}`;
   }
 
   async close(): Promise<void> {

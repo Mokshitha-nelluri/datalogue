@@ -4,8 +4,24 @@
   "private": true,
   "description": "Next.js 15 demo site for Datalogue — Northwind dataset",
   "scripts": {
-    "dev": "echo 'TODO: next dev'",
-    "build": "echo 'TODO: next build'"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "datalogue": "workspace:*",
+    "datalogue-react": "workspace:*",
+    "better-sqlite3": "^11.9.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.3"
   },
   "license": "ISC"
 }

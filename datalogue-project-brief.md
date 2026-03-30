@@ -1673,6 +1673,107 @@ Cost: embedding call per query. Impact: smarter context — detect when a follow
 ### 9. Export to BI tools
 Return results in formats that BI tools consume: Looker SDK format, Metabase question format, Tableau extract. Positions Datalogue as an NL→BI bridge, not just NL→SQL. Medium effort but unlocks enterprise adoption where teams already use these tools.
 
+### 10. SessionStore TTL enforcement awareness
+The current `SessionStore.set(sessionId, messages, ttlMs?)` passes TTL as an optional parameter. Stores that support native TTL (Redis `SETEX`, DynamoDB TTL attribute) handle this correctly. But stores that don't (Firestore, plain PostgreSQL) might silently ignore `ttlMs`, causing sessions to never expire. Add a `supportsTTL?: boolean` flag to the `SessionStore` interface or a runtime warning when `ttlMs` is passed to a store that doesn't declare TTL support. Low effort, prevents a subtle misconfiguration where developers think sessions expire but they don't.
+
+---
+
+## Developer Integration Patterns — How Developers Use Datalogue
+
+The `<QueryBox />` chat component is the most obvious integration, but it's only one of many. Datalogue is designed as composable infrastructure — every layer is independently usable.
+
+### Pattern 1 — Dashboard Cards (no user input)
+Pre-defined queries run on page load. `<ResultView />` renders charts/tables automatically. Users never type anything — they just see live data.
+```tsx
+const queries = ["Total revenue this quarter", "Top 5 customers by spend", "Orders by category"];
+// fetch each on mount → render <ResultView result={r} showSQL={false} /> in a grid
+```
+**Use case:** auto-refreshing KPI dashboards, executive summaries.
+
+### Pattern 2 — Search Bar (single input, inline result)
+One text input, one result, replaces in-place. Like Notion search or Stripe's dashboard search. No chat history.
+```tsx
+<input onKeyDown={e => e.key === 'Enter' && runQuery(value)} />
+{result && <ResultView result={result} />}
+```
+**Use case:** data explorer tools, internal admin panels.
+
+### Pattern 3 — Dropdown / Button Triggers (programmatic queries)
+UI controls (dropdowns, date pickers, buttons) construct the NL question behind the scenes. Users never write a sentence.
+```tsx
+<select onChange={e => runQuery(`Show me ${e.target.value} for ${selectedMonth}`)}>
+  <option>revenue by category</option>
+  <option>top 10 customers</option>
+</select>
+```
+**Use case:** report generators, parameterised dashboards.
+
+### Pattern 4 — Headless / Server-Only (no React)
+Use `datalogue` core on the server. Build any UI — D3, Recharts, vanilla HTML tables, server-rendered PDF. The React package is entirely optional.
+```ts
+const dl = new Datalogue({ db, ai, allowedTables: [...] });
+const result = await dl.query("monthly revenue trend");
+// result.rows, result.chartSpec, result.csv, result.sql — render with anything
+```
+**Use case:** API-first backends, CLI tools, PDF report generators, Vue/Svelte/Angular frontends.
+
+### Pattern 5 — Augmenting Existing Pages
+Add an "Ask AI" button alongside existing tables or dashboards. The AI result enriches what's already on screen rather than replacing it.
+```tsx
+<OrdersTable data={orders} />
+<button onClick={() => runQuery("Which of these orders are overdue?")}>Ask AI</button>
+{aiResult && <ResultView result={aiResult} showChart={false} />}
+```
+**Use case:** adding NL queries to an existing product without redesigning the UI.
+
+### Pattern 6 — Framework Integration Routes (one-line API)
+Use `datalogue-integrations` to mount API endpoints in Express, Fastify, Hono, NestJS, or Next.js. Then consume from any frontend with `fetch()`.
+```ts
+// Express: one line
+app.use('/api/query', datalogueExpress({ db, ai, allowedTables }));
+```
+**Use case:** adding an NL→SQL API to an existing backend in minutes.
+
+### Package layer summary
+
+| Package | What you get | Requires React? |
+|---|---|---|
+| `datalogue` (core) | `.query()` → SQL + rows + charts + CSV | No |
+| `datalogue-react` `<ResultView />` | Chart/table/SQL tab renderer | Yes |
+| `datalogue-react` `<QueryBox />` | Full chat experience | Yes |
+| `datalogue-integrations` | One-line API route mounting | No |
+
+---
+
+## Implementation Status
+
+### What's fully built and tested (196/196 tests passing)
+- **Core library (`datalogue`)**: `Datalogue` class, schema introspection, prompt builder, AI response parser, output formatter (smart chart inference), AST SQL validator, table allowlist, error sanitizer, audit logger, context manager (multi-turn sessions)
+- **Security layer**: AST-level SQL validation with `node-sql-parser`, table allowlist enforcement, system schema blocking, dangerous function blocking, hex-encoded string detection, comment stripping, fallback regex validation for dialects with limited parser support
+- **AI providers**: Anthropic (`@anthropic-ai/sdk`) and OpenAI (`openai`) — both fully implemented
+- **React components (`datalogue-react`)**: `<QueryBox />` (full chat UI with suggestions, dry-run toggle, confidence badges, custom renderers) and `<ResultView />` (tabbed chart/table/SQL view with built-in SVG bar, line, and pie charts — zero Chart.js dependency)
+- **CLI (`datalogue-cli`)**: `npx datalogue serve` — spins up Express server with web chat UI
+- **Framework integrations (`datalogue-integrations`)**: Express, Fastify, Hono, NestJS, Next.js route helpers
+- **Demo app**: Next.js 15 App Router with Northwind SQLite database, live at `localhost:3001`
+
+### Database adapters — current status
+
+| Adapter | Status | Notes |
+|---|---|---|
+| **SQLite** (`better-sqlite3`) | **Fully implemented + tested** | Used in the live demo with Northwind DB |
+| **PostgreSQL** (`pg`) | Stubbed (methods throw `'Not implemented'`) | Needs: `require('pg')`, connection pool, `query()`, `introspect()` via `information_schema`, `close()` |
+| **MySQL** (`mysql2`) | Stubbed | Needs: `require('mysql2/promise')`, connection pool, `query()`, `introspect()` via `information_schema`, `close()` |
+| **MS SQL Server** (`mssql`) | Stubbed | Needs: `require('mssql')`, connection pool, `query()`, `introspect()` via `INFORMATION_SCHEMA`, `close()` |
+
+The stubs have the correct constructor signatures matching the TypeScript API surface. Implementing each adapter is ~50-80 lines following the same pattern as the SQLite adapter — dynamic `require()` of the driver, introspection query against the database's schema catalog, and `close()` to tear down connection pools. Testing requires running each database (Docker recommended).
+
+### What's the Northwind database?
+Northwind is Microsoft's classic sample database — a fictional food import/export company with tables like Customers, Orders, Products, Employees, Suppliers, etc. It's the "Hello World" of relational databases, used for decades in tutorials and demos. We use it because:
+- It has realistic relational structure (10+ tables, foreign keys, real-ish data)
+- Everyone in the DB world recognises it
+- It's available as a SQLite file (23 MB), no server setup needed
+- It proves Datalogue works with a non-trivial schema
+
 ---
 
 ## Future Project (After Datalogue)
