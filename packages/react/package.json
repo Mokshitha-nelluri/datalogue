@@ -1,6 +1,6 @@
 {
   "name": "datalogue-react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React components for Datalogue — drop-in chat UI and result rendering.",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

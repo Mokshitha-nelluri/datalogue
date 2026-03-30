@@ -1,6 +1,6 @@
 {
   "name": "datalogue",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lightweight TypeScript-native NL→SQL library. Add natural language database querying to any Node.js app in under 10 minutes.",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
