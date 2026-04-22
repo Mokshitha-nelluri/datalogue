@@ -26,9 +26,13 @@ packages/*/tests/**/*.d.ts.map
 # Compiled config artifacts
 cli/**/*.d.ts
 cli/**/*.d.ts.map
+cli/tsup.config.js
 cli/**/*.js.map
+packages/*/tsup.config.js
 packages/*/tsup.config.d.ts
 packages/*/tsup.config.d.ts.map
 packages/*/tsup.config.js.map
 vitest.config.d.ts
+vitest.config.d.ts.map
 vitest.config.js
+vitest.config.js.map
