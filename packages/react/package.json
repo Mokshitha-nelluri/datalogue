@@ -2,14 +2,14 @@
   "name": "datalogue-react",
   "version": "0.1.1",
   "description": "React components for Datalogue — drop-in chat UI and result rendering.",
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
     }
   },
   "files": [
@@ -34,7 +34,7 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Mokshitha-nelluri/datalogue.git",
+    "url": "git+https://github.com/Mokshitha-nelluri/datalogue.git",
     "directory": "packages/react"
   },
   "homepage": "https://github.com/Mokshitha-nelluri/datalogue#readme",
